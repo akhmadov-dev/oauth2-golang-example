@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+    <h1>{{.Name}}</h1>
+    <img width="100" src="{{.Logo}}" alt="">
+    <p>Requesting access to <b>{{.Website}}</b> with the following scopes:</p>
+    <ul>
+        {{range $scope := .Scopes }}
+        <li>{{$scope}}</li>
+        {{end}}
+    </ul>
+    <form action="confirm_auth">
+        <button type="submit" name="authorize" value="true">Authorize</button>
+        <button type="submit" name="authorize" value="false">Deny</button>
+        <input type="hidden" name="client_id" value="{{.Name}}">
+        <input type="hidden" name="state" value="{{.State}}">
+    </form>
+</body>
+</html>
