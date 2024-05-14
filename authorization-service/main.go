@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"github.com/gofiber/template/html/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/lucsky/cuid"
+	"golang.org/x/crypto/bcrypt"
 	"os"
 	"strconv"
 	"strings"
@@ -32,6 +34,25 @@ type Client struct {
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index"`
+}
+
+type NewUserResponse struct {
+	ID    uuid.UUID
+	Email string
+}
+
+type NewUserRequest struct {
+	Email    string
+	Password string
+}
+
+type User struct {
+	ID        uuid.UUID      `gorm:"primaryKey"`
+	Email     string         `gorm:"uniqueIndex"`
+	Password  string         `gorm:"-"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
 type AuthRequest struct {
@@ -61,6 +82,23 @@ type TokenResponse struct {
 	ExpiresIn   int    `json:"expires_in"`
 }
 
+func NewUser(req *NewUserRequest) *User {
+	hashedPassword, err := hashPassword(req.Password)
+	if err != nil {
+		panic("Failed to hash password")
+	}
+	return &User{
+		ID:       uuid.New(),
+		Email:    req.Email,
+		Password: hashedPassword,
+	}
+}
+
+func hashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	return string(bytes), err
+}
+
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -78,7 +116,7 @@ func main() {
 	}
 
 	// Migrate to schema
-	db.AutoMigrate(&Client{})
+	db.AutoMigrate(&Client{}, &User{})
 
 	// Generate temp code
 	clientSecret, err := cuid.NewCrypto(rand.Reader)
@@ -110,6 +148,23 @@ func main() {
 
 	api.Get("/", func(c *fiber.Ctx) error {
 		return c.SendString("Hello!")
+	})
+	api.Post("/user", func(c *fiber.Ctx) error {
+		userReq := new(NewUserRequest)
+		if err := c.BodyParser(userReq); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid_request"})
+		}
+
+		if userReq.Email == "" || userReq.Password == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid_request"})
+		}
+
+		user := NewUser(userReq)
+		if err := db.Create(&user).Error; err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "internal_server_error"})
+		}
+
+		return c.JSON(fiber.Map{"status": "success", "message": "Created User", "user": user})
 	})
 	api.Get("/auth", func(c *fiber.Ctx) error {
 		// Parse Request
@@ -194,7 +249,6 @@ func main() {
 
 		return c.Redirect(client.RedirectURI + "?code=" + tempCode + "&state=" + confirmAuthRequest.State)
 	})
-
 	api.Post("/token", func(c *fiber.Ctx) error {
 		tokenRequest := new(TokenRequest)
 		if err := c.BodyParser(tokenRequest); err != nil {
